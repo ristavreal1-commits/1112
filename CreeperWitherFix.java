@@ -1,7 +1,10 @@
 import com.sk89q.worldedit.bukkit.BukkitAdapter;
 import com.sk89q.worldguard.WorldGuard;
+import com.sk89q.worldguard.protection.ApplicableRegionSet;
 import com.sk89q.worldguard.protection.flags.Flags;
 import com.sk89q.worldguard.protection.flags.StateFlag;
+import com.sk89q.worldguard.protection.flags.StringFlag;
+import com.sk89q.worldguard.protection.regions.ProtectedRegion;
 import com.sk89q.worldguard.protection.regions.RegionQuery;
 import org.bukkit.Location;
 import org.bukkit.block.Block;
@@ -23,6 +26,27 @@ public class CreeperWitherFix extends JavaPlugin implements Listener {
     public void onEnable() {
         getServer().getPluginManager().registerEvents(this, this);
         getLogger().info("CreeperWitherFix успешно загружен!");
+    }
+
+    private boolean isProtectionStoneBlock(Block block, ApplicableRegionSet regions) {
+        String blockName = block.getType().name();
+        for (ProtectedRegion region : regions) {
+            if (region.getId().startsWith("ps")) {
+                Object matFlag = region.getFlags().entrySet().stream()
+                        .filter(e -> e.getKey().getName().equals("ps-block-material"))
+                        .map(Map.Entry::getValue)
+                        .findFirst()
+                        .orElse(null);
+
+                if (matFlag != null && matFlag.toString().equalsIgnoreCase(blockName)) {
+                    String coords = "ps" + block.getX() + "x" + block.getY() + "y" + block.getZ() + "z";
+                    if (region.getId().equalsIgnoreCase(coords)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
@@ -48,8 +72,10 @@ public class CreeperWitherFix extends JavaPlugin implements Listener {
 
         for (Block block : blocks) {
             Location loc = block.getLocation();
-            StateFlag.State state = query.queryState(BukkitAdapter.adapt(loc), null, targetFlag);
-            if (state == StateFlag.State.ALLOW) {
+            ApplicableRegionSet regions = query.getApplicableRegions(BukkitAdapter.adapt(loc));
+            StateFlag.State state = regions.queryState(null, targetFlag);
+
+            if (state == StateFlag.State.ALLOW && !isProtectionStoneBlock(block, regions)) {
                 allowedBlocks.add(block);
             }
         }
@@ -64,9 +90,12 @@ public class CreeperWitherFix extends JavaPlugin implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onWitherEatBlocks(EntityChangeBlockEvent event) {
         if (event.getEntityType() == EntityType.WITHER) {
+            Location loc = event.getBlock().getLocation();
             RegionQuery query = WorldGuard.getInstance().getPlatform().getRegionContainer().createQuery();
-            StateFlag.State state = query.queryState(BukkitAdapter.adapt(event.getBlock().getLocation()), null, Flags.WITHER_DAMAGE);
-            if (state == StateFlag.State.ALLOW) {
+            ApplicableRegionSet regions = query.getApplicableRegions(BukkitAdapter.adapt(loc));
+            StateFlag.State state = regions.queryState(null, Flags.WITHER_DAMAGE);
+
+            if (state == StateFlag.State.ALLOW && !isProtectionStoneBlock(event.getBlock(), regions)) {
                 event.setCancelled(false);
             }
         }
